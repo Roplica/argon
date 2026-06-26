@@ -1,6 +1,7 @@
 use anyhow::{bail, Result};
 use clap::Parser;
 use colored::Colorize;
+use directories::UserDirs;
 use log::{debug, info};
 use roblox_install::RobloxStudio;
 use std::{fs, path::PathBuf, process};
@@ -15,6 +16,28 @@ use crate::{
 	project::{self, Project},
 	sessions,
 };
+
+fn get_studio_plugins_path() -> Result<PathBuf> {
+	#[cfg(target_os = "linux")]
+	{
+		let user_dirs = UserDirs::new().ok_or_else(|| anyhow::anyhow!("Failed to get user directory"))?;
+		let vinegar_root = user_dirs.home_dir().join(".var/app/org.vinegarhq.Vinegar");
+		if vinegar_root.exists() {
+			let studio_data = vinegar_root.join("data/roblox-studio");
+			if !studio_data.exists() {
+				anyhow::bail!(
+					"Vinegar (Flatpak) detected but Roblox Studio data directory is missing.\n\
+					Expose the filesystem and launch Studio once:\n\
+					  flatpak override --user --filesystem=home org.vinegarhq.Vinegar\n\
+					Then relaunch Roblox Studio via Vinegar and try again."
+				);
+			}
+			return Ok(studio_data.join("Plugins"));
+		}
+	}
+
+	Ok(RobloxStudio::locate()?.plugins_path().to_owned())
+}
 
 /// Build project into Roblox binary or XML place or model
 #[derive(Parser)]
@@ -92,7 +115,7 @@ impl Build {
 				bail!("Cannot build plugin from place project");
 			}
 
-			let plugins_path = RobloxStudio::locate()?.plugins_path().to_owned();
+			let plugins_path = get_studio_plugins_path()?;
 			let ext = if xml { "rbxmx" } else { "rbxm" };
 
 			plugins_path.join(format!("{}.{}", project.name, ext))

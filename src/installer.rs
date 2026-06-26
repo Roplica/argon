@@ -89,7 +89,9 @@ pub fn install_plugin(path: &Path, show_progress: bool) -> Result<()> {
 			UpdateStatus::Updated(release) => {
 				argon_info!("Installed Argon plugin, version: {}", release.version.bold());
 
-				if path.contains(&["Roblox", "Plugins"]) {
+				if path.contains(&["Roblox", "Plugins"])
+					|| path.contains(&["roblox-studio", "Plugins"])
+				{
 					let mut status = updater::get_status()?;
 					status.plugin_version = release.version;
 

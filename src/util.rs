@@ -33,6 +33,26 @@ pub fn get_username() -> String {
 }
 
 pub fn get_plugin_path() -> Result<PathBuf> {
+	#[cfg(target_os = "linux")]
+	{
+		let user_dirs = UserDirs::new().context("Failed to get user directory")?;
+		let vinegar_root = user_dirs
+			.home_dir()
+			.join(".var/app/org.vinegarhq.Vinegar");
+		if vinegar_root.exists() {
+			let studio_data = vinegar_root.join("data/roblox-studio");
+			if !studio_data.exists() {
+				anyhow::bail!(
+					"Vinegar (Flatpak) detected but Roblox Studio data directory is missing.\n\
+					Expose the filesystem and launch Studio once:\n\
+					  flatpak override --user --filesystem=home org.vinegarhq.Vinegar\n\
+					Then relaunch Roblox Studio via Vinegar and try again."
+				);
+			}
+			return Ok(studio_data.join("Plugins/Argon.rbxm"));
+		}
+	}
+
 	Ok(RobloxStudio::locate()?.plugins_path().join("Argon.rbxm"))
 }
 
