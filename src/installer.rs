@@ -28,7 +28,7 @@ pub fn is_managed() -> bool {
 		Err(_) => return false,
 	};
 
-	!path.contains(&[".argon", "bin"]) && (path.contains(&["bin"]) || path.contains(&["tool-storage"]))
+	!path.contains(&[".argon-ex", "bin"]) && (path.contains(&["bin"]) || path.contains(&["tool-storage"]))
 }
 
 pub fn verify(is_managed: bool, with_plugin: bool) -> Result<()> {
@@ -42,10 +42,10 @@ pub fn verify(is_managed: bool, with_plugin: bool) -> Result<()> {
 		globenv::set_path(&bin_dir.to_string())?;
 
 		#[cfg(not(target_os = "windows"))]
-		let exe_path = bin_dir.join("argon");
+		let exe_path = bin_dir.join("argon-ex");
 
 		#[cfg(target_os = "windows")]
-		let exe_path = bin_dir.join("argon.exe");
+		let exe_path = bin_dir.join("argon-ex.exe");
 
 		if !exe_path.exists() {
 			fs::copy(env::current_exe()?, &exe_path)?;

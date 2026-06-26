@@ -12,11 +12,11 @@ use std::{env, path::PathBuf, process::Command};
 
 use crate::{ext::ResultExt, Properties};
 
-/// Returns the `.argon` directory
+/// Returns the `.argon-ex` directory
 pub fn get_argon_dir() -> Result<PathBuf> {
 	let user_dirs = UserDirs::new().context("Failed to get user directory")?;
 
-	Ok(user_dirs.home_dir().join(".argon"))
+	Ok(user_dirs.home_dir().join(".argon-ex"))
 }
 
 /// Returns the Git or local username of the current user

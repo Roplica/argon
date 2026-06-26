@@ -72,7 +72,7 @@ fn update_cli(prompt: bool, force: bool) -> Result<bool> {
 	let update = Update::configure()
 		.repo_owner("argon-rbx")
 		.repo_name("argon")
-		.bin_name("argon")
+		.bin_name("argon-ex")
 		.target(target)
 		.show_download_progress(true)
 		.set_progress_style(style.0, style.1)
