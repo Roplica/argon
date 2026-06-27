@@ -4,12 +4,11 @@ use actix_web::{
 	App, HttpServer, Responder,
 };
 use derive_from_one::FromOne;
-use log::info;
+use crate::argon_info;
 use serde::{Deserialize, Serialize};
 use std::{io::Result, net::TcpListener, sync::Arc};
 
 use crate::{
-	config::Config,
 	constants::MAX_PAYLOAD_SIZE,
 	core::{changes::Changes, Core},
 	project::ProjectDetails,
@@ -71,24 +70,26 @@ pub struct Server {
 	core: Arc<Core>,
 	host: String,
 	port: u16,
+	use_ws: bool,
 }
 
 impl Server {
-	pub fn new(core: Arc<Core>, host: &str, port: u16) -> Self {
+	pub fn new(core: Arc<Core>, host: &str, port: u16, use_ws: bool) -> Self {
 		Self {
 			core,
 			host: host.to_owned(),
 			port,
+			use_ws,
 		}
 	}
 
 	#[actix_web::main]
 	pub async fn start(&self) -> Result<()> {
 		let core = self.core.clone();
-		let use_ws = Config::new().transport == "websocket";
+		let use_ws = self.use_ws;
 
 		if use_ws {
-			info!("WebSocket transport enabled at /ws");
+			argon_info!("WebSocket transport enabled at /ws");
 		}
 
 		HttpServer::new(move || {

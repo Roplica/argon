@@ -2,12 +2,56 @@ use actix_web::{get, web, web::Data, HttpRequest, HttpResponse};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use futures_util::StreamExt;
 use log::{error, trace, warn};
+use crate::{argon_warn};
 use rbx_dom_weak::types::Ref;
-use serde::{Deserialize, Serialize};
+use serde::{
+	de::{self, Deserializer, Visitor},
+	Deserialize, Serialize,
+};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
+// rmp_serde serializes Ref as 16 big-endian bytes (via serialize_u128 → serialize_bytes).
+// The adjacently-tagged content proxy can't forward deserialize_u128 for bin8, so Ref's
+// built-in deserializer fails. This custom deserializer handles the bytes form directly.
+fn ref_from_bytes<'de, D: Deserializer<'de>>(d: D) -> Result<Ref, D::Error> {
+	struct V;
+	impl<'de> Visitor<'de> for V {
+		type Value = Ref;
+		fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+			write!(f, "16 big-endian bytes or u128 Roblox referent")
+		}
+		fn visit_bytes<E: de::Error>(self, v: &[u8]) -> Result<Ref, E> {
+			let arr: [u8; 16] = v
+				.try_into()
+				.map_err(|_| E::custom(format!("expected 16 bytes, got {}", v.len())))?;
+			let val = u128::from_be_bytes(arr);
+			Ok(if val == 0 { Ref::none() } else { Ref::some(val) })
+		}
+		fn visit_borrowed_bytes<E: de::Error>(self, v: &[u8]) -> Result<Ref, E> {
+			self.visit_bytes(v)
+		}
+		fn visit_seq<A: de::SeqAccess<'de>>(self, mut seq: A) -> Result<Ref, A::Error> {
+			let mut bytes = [0u8; 16];
+			for b in &mut bytes {
+				*b = seq
+					.next_element::<u8>()?
+					.ok_or_else(|| de::Error::custom("seq too short for Ref"))?;
+			}
+			self.visit_bytes(&bytes)
+		}
+		fn visit_u64<E: de::Error>(self, v: u64) -> Result<Ref, E> {
+			Ok(if v == 0 { Ref::none() } else { Ref::some(v as u128) })
+		}
+		fn visit_u128<E: de::Error>(self, v: u128) -> Result<Ref, E> {
+			Ok(if v == 0 { Ref::none() } else { Ref::some(v) })
+		}
+	}
+	d.deserialize_bytes(V)
+}
+
 use crate::{
+	argon_info,
 	core::{processor::WriteRequest, snapshot::AddedSnapshot, Core},
 	project::ProjectDetails,
 	server::{self, Message},
@@ -31,12 +75,12 @@ struct InFrame {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "kind", content = "data", rename_all = "camelCase")]
 enum InPayload {
-	Subscribe { client_id: u32, name: String },
+	Subscribe { #[serde(rename = "clientId")] client_id: u32, name: String },
 	Unsubscribe,
 	Write(WriteRequest),
-	Snapshot { instance: Ref },
+	Snapshot { #[serde(deserialize_with = "ref_from_bytes")] instance: Ref },
 	Details,
-	Open { instance: Ref, #[serde(rename = "line")] _line: u32 },
+	Open { #[serde(deserialize_with = "ref_from_bytes")] instance: Ref, #[serde(rename = "line")] _line: u32 },
 	Exec { code: String, focus: bool },
 }
 
@@ -94,6 +138,7 @@ pub async fn upgrade(
 	core: Data<Arc<Core>>,
 ) -> Result<HttpResponse, actix_web::Error> {
 	let (res, session, msg_stream) = actix_ws::handle(&req, stream)?;
+	argon_info!("WS client TCP connected from {:?}", req.peer_addr());
 	actix_web::rt::spawn(run(session, msg_stream, Arc::clone(&*core)));
 	Ok(res)
 }
@@ -113,7 +158,7 @@ async fn run(
 		error!("WS subscribe failed for client {client_id}: {e}");
 		return;
 	}
-	trace!("WS client {client_id} subscribed");
+	argon_info!("WS client {} subscribed: {}", client_id, name);
 
 	send(&mut session, handshake_id, OutPayload::Ok).await;
 
@@ -150,19 +195,26 @@ async fn run(
 	// Removing the subscription causes the drain task to exit on its next wake up
 	core.queue().unsubscribe(client_id).ok();
 	session.close(None).await.ok();
-	trace!("WS client {client_id} disconnected");
+	argon_info!("WS client {} disconnected", client_id);
 }
 
 async fn handshake(stream: &mut actix_ws::MessageStream) -> Option<(u32, String, u64)> {
 	while let Some(msg) = stream.next().await {
 		if let Ok(actix_ws::Message::Text(ref text)) = msg {
-			if let Ok(InFrame {
-				id,
-				payload: InPayload::Subscribe { client_id, name },
-			}) = decode_frame(text)
-			{
-				trace!("WS handshake from client {client_id} name={name}");
-				return Some((client_id, name, id));
+			match decode_frame(text) {
+				Ok(InFrame {
+					id,
+					payload: InPayload::Subscribe { client_id, name },
+				}) => {
+					argon_info!("WS handshake from client {} name={}", client_id, name);
+					return Some((client_id, name, id));
+				}
+				Ok(frame) => {
+					argon_warn!("WS handshake: unexpected frame (expected Subscribe), got id={}", frame.id);
+				}
+				Err(e) => {
+					argon_warn!("WS handshake decode error: {e}");
+				}
 			}
 		}
 	}
@@ -178,7 +230,7 @@ async fn dispatch(
 	let frame = match decode_frame(text) {
 		Ok(f) => f,
 		Err(e) => {
-			warn!("WS decode error: {e}");
+			argon_warn!("WS dispatch decode error: {e}");
 			return true;
 		}
 	};
@@ -200,6 +252,7 @@ async fn dispatch(
 			send(session, id, OutPayload::Ok).await;
 		}
 		InPayload::Snapshot { instance } => {
+			argon_warn!("WS snapshot request from client {client_id}");
 			send(session, id, OutPayload::SnapshotData(core.snapshot(instance))).await;
 		}
 		InPayload::Details => {

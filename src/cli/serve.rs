@@ -164,7 +164,7 @@ impl Serve {
 			config.run_async,
 		)?;
 
-		let server = Server::new(core, &host, port);
+		let server = Server::new(core, &host, port, config.transport == "websocket");
 
 		argon_info!(
 			"Serving on: {}, project: {}",
