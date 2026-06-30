@@ -17,6 +17,7 @@ mod plugin;
 mod serve;
 mod sourcemap;
 mod stop;
+mod stream;
 mod syncback;
 mod studio;
 mod update;
@@ -126,6 +127,7 @@ impl Cli {
 			Commands::Build(command) => command.main(),
 			Commands::Sourcemap(command) => command.main(),
 			Commands::Stop(command) => command.main(),
+			Commands::Stream(command) => command.main(),
 			Commands::Syncback(command) => command.main(),
 			Commands::Studio(command) => command.main(),
 			Commands::Debug(command) => command.main(),
@@ -145,6 +147,7 @@ pub enum Commands {
 	Build(build::Build),
 	Sourcemap(sourcemap::Sourcemap),
 	Stop(stop::Stop),
+	Stream(stream::Stream),
 	Syncback(syncback::Syncback),
 	Studio(studio::Studio),
 	Debug(debug::Debug),
